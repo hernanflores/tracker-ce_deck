@@ -59,11 +59,27 @@ target_compile_options(tracker_core PUBLIC ${HOST_FLAGS})
 target_compile_options(tracker_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti -fno-exceptions>)
 
 # ---- host platform + executable ----
-file(GLOB HOST_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
+set(IMX_FT812_DIR ${REPO_ROOT}/platforms/imx/3rdparty/FT812)
+file(GLOB HOST_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eve/*.cpp)
+list(FILTER HOST_SRC EXCLUDE REGEX "BtEmuDevice")
+# Bridgetek's emulator is optional and proprietary: only built against a user-provided header dir.
+set(BT8XXEMU_INCLUDE_DIR "" CACHE PATH "Directory containing Bridgetek's bt8xxemu.h (enables --display=bteve)")
+if(BT8XXEMU_INCLUDE_DIR)
+  list(APPEND HOST_SRC ${CMAKE_CURRENT_SOURCE_DIR}/eve/BtEmuDevice.cpp)
+endif()
+# the IMX FT812 command/API layers are compiled unchanged on top of the host MCU layer
+list(APPEND HOST_SRC ${IMX_FT812_DIR}/API_Layer.cpp ${IMX_FT812_DIR}/EVE_Layer.cpp)
 find_package(SDL3 REQUIRED CONFIG)
 add_executable(tracker-host ${HOST_SRC})
 target_link_libraries(tracker-host PRIVATE SDL3::SDL3)
-target_include_directories(tracker-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(BT8XXEMU_INCLUDE_DIR)
+  target_include_directories(tracker-host PRIVATE ${BT8XXEMU_INCLUDE_DIR})
+  target_compile_definitions(tracker-host PRIVATE HOST_HAS_BTEMU)
+endif()
+# stubs/ must come first: it provides the SpiBus.h that FT812.h includes
+target_include_directories(tracker-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR} ${IMX_FT812_DIR})
 target_compile_options(tracker-host PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti -fno-exceptions>)
 option(HOST_WHOLE_ARCHIVE "Link every core object (find unresolved symbols)" OFF)
 if(HOST_WHOLE_ARCHIVE)
@@ -96,3 +112,31 @@ add_test(NAME dspinst COMMAND dspinst_test)
 
 add_test(NAME export_smoke COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/export_smoke.sh $<TARGET_FILE:tracker-host>)
 set_tests_properties(export_smoke PROPERTIES ENVIRONMENT "SDL_AUDIODRIVER=dummy")
+
+# ---- eve-replay: replays recorded display traces into a backend ----
+set(EVE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/eve/EveSpiDecoder.cpp ${CMAKE_CURRENT_SOURCE_DIR}/eve/PassiveEveDevice.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/eve/TraceTee.cpp ${CMAKE_CURRENT_SOURCE_DIR}/eve/BtEmuStub.cpp)
+if(BT8XXEMU_INCLUDE_DIR)
+  list(APPEND EVE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/eve/BtEmuDevice.cpp)
+endif()
+add_executable(eve-replay tools/eve_replay.cpp ${EVE_SRC})
+target_include_directories(eve-replay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CORE_DIR}/libs/FT812)
+if(BT8XXEMU_INCLUDE_DIR)
+  target_include_directories(eve-replay PRIVATE ${BT8XXEMU_INCLUDE_DIR})
+  target_compile_definitions(eve-replay PRIVATE HOST_HAS_BTEMU)
+  if(NOT APPLE)
+    target_link_libraries(eve-replay PRIVATE dl)
+  endif()
+endif()
+
+add_executable(eve_test tests/eve_test.cpp ${EVE_SRC})
+target_include_directories(eve_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(BT8XXEMU_INCLUDE_DIR)
+  target_include_directories(eve_test PRIVATE ${BT8XXEMU_INCLUDE_DIR})
+  target_compile_definitions(eve_test PRIVATE HOST_HAS_BTEMU)
+  if(NOT APPLE)
+    target_link_libraries(eve_test PRIVATE dl)
+  endif()
+endif()
+add_test(NAME eve_decoder COMMAND eve_test)
+add_test(NAME eve_roundtrip COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/eve_roundtrip.sh $<TARGET_FILE:tracker-host> $<TARGET_FILE:eve-replay>)

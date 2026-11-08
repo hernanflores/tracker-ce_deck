@@ -2,6 +2,11 @@
 #include "AudioBackend.h"
 #include "HostPlatform.h"
 #include "HostTestHooks.h"
+#include "Presenter.h"
+#include "EveHost.h"
+#include "eve/BtEmuDevice.h"
+#include "eve/PassiveEveDevice.h"
+#include "eve/TraceTee.h"
 #include "Tracker.h"
 
 #include <algorithm>
@@ -19,7 +24,11 @@ static constexpr int kSampleRate = 44100;
 struct Options
 {
     std::string sdRoot;
-    std::string display = "null";
+    std::string display = "null"; // null | passive | pattern | bteve
+    std::string eveTrace;         // record the display bus stream to this file
+    std::string eveLib = "libbt8xxemu.so";
+    double scale = 1.6;
+    bool fullscreen = false;
     double runSeconds = 0; // 0 = run until the firmware powers off
     std::string audio = "sdl"; // sdl | pump (headless real-time pump, no device)
     int audioBuffer = 512;     // frames kept queued ahead of the device
@@ -31,11 +40,18 @@ struct Options
 static void usage(const char* argv0)
 {
     fprintf(stderr,
-            "usage: %s [--sd <dir>] [--display=null] [--run-seconds N]\n"
+            "usage: %s [--sd <dir>] [--display=MODE] [--eve-trace FILE] [--run-seconds N]\n"
+            "          [--eve-lib PATH] [--scale X] [--fullscreen]\n"
             "          [--audio=sdl|pump] [--audio-buffer FRAMES] [--audio-in] [--audio-stats]\n"
             "          [--open-project <path> <name>] [--export song|pattern]\n"
             "  --sd <dir>        directory used as the SD card root (default ~/TrackerMini)\n"
-            "  --display=null    no display output (only mode available so far)\n"
+            "  --display=MODE    null (no display, default), passive (firmware drives a chip that\n"
+            "                    ignores commands), pattern (passive + test pattern window),\n"
+            "                    bteve (Bridgetek emulator, Linux x86_64, user-installed)\n"
+            "  --eve-trace FILE  record the display bus stream (for eve-replay)\n"
+            "  --eve-lib PATH    libbt8xxemu.so for --display=bteve\n"
+            "  --scale X         window size relative to 800x480 (default 1.6)\n"
+            "  --fullscreen      start fullscreen\n"
             "  --run-seconds N   quit after N seconds (smoke tests)\n"
             "  --audio=MODE      sdl (default) or pump (real-time rendering without a device)\n"
             "  --audio-buffer N  output cushion in frames (default 512)\n"
@@ -59,6 +75,14 @@ static bool parseArgs(int argc, char** argv, Options& o)
             o.sdRoot = argv[++i];
         else if (a.rfind("--display=", 0) == 0)
             o.display = a.substr(10);
+        else if (a == "--eve-trace" && i + 1 < argc)
+            o.eveTrace = argv[++i];
+        else if (a == "--eve-lib" && i + 1 < argc)
+            o.eveLib = argv[++i];
+        else if (a == "--scale" && i + 1 < argc)
+            o.scale = atof(argv[++i]);
+        else if (a == "--fullscreen")
+            o.fullscreen = true;
         else if (a == "--run-seconds" && i + 1 < argc)
             o.runSeconds = atof(argv[++i]);
         else if (a == "--open-project" && i + 2 < argc)
@@ -86,7 +110,7 @@ static bool parseArgs(int argc, char** argv, Options& o)
     if (!o.hooks.exportMode.empty() && o.hooks.exportMode != "song" &&
         o.hooks.exportMode != "pattern")
         return false;
-    return o.display == "null" && (o.audio == "sdl" || o.audio == "pump");
+    return (o.display == "null" || o.display == "passive" || o.display == "pattern" || o.display == "bteve") && (o.audio == "sdl" || o.audio == "pump");
 }
 
 //----------------------------------------------------------------------------------------------
@@ -143,6 +167,49 @@ int main(int argc, char** argv)
     PlatformHost platform(opt.sdRoot, true);
     platform.init();
 
+    // display: the firmware's FT812 library always talks to an EveDevice (except --display=null)
+    DisplayDriverHost hostDisplay;
+    Presenter presenter;
+    std::unique_ptr<EveDevice> eve;
+    if (opt.display != "null")
+    {
+        if (opt.display == "bteve")
+        {
+            std::string err;
+            eve = makeBtEmuDevice(opt.eveLib, err);
+            if (!eve)
+            {
+                fprintf(stderr, "display: %s\n", err.c_str());
+                return 3;
+            }
+        }
+        else
+        {
+            eve = std::make_unique<PassiveEveDevice>(opt.display == "pattern");
+        }
+        if (!opt.eveTrace.empty())
+        {
+            auto tee = std::make_unique<TraceTee>(std::move(eve), opt.eveTrace);
+            if (!tee->ok())
+            {
+                fprintf(stderr, "cannot write trace %s\n", opt.eveTrace.c_str());
+                return 3;
+            }
+            eve = std::move(tee);
+        }
+        if (!hostDisplay.init(eve.get()))
+        {
+            fprintf(stderr, "display: chip did not answer\n");
+            return 3;
+        }
+        platform.setDisplayDriver(&hostDisplay);
+        fprintf(stderr, "display: %s\n", eve->name());
+        if (opt.display == "pattern" || opt.display == "bteve")
+        {
+            if (!presenter.init(opt.scale, opt.fullscreen)) return 3;
+        }
+    }
+
     Tracker* tracker = Tracker::getInstance();
     tracker->getStartDisplayFunc()(&platform);
     tracker->init(&platform);
@@ -185,6 +252,13 @@ int main(int argc, char** argv)
         platform.update();
         platform.hostButtons().update();
         tracker->update();
+
+        if (presenter.active())
+        {
+            EveFrame frame;
+            if (eve->pollFrame(frame)) presenter.present(frame);
+            if (!presenter.pumpEvents()) platform.quitRequested = true;
+        }
 
         if (opt.audioStats && platform.getTimer()->millis() - lastStatsMs > 10000)
         {
