@@ -1540,7 +1540,7 @@ static void findFreeSampleRamScratchStereo(uint32_t channels,
                              mtProject.sampleMemory[i].address[strSampleMemory::Channel::kLeft])
                             ? 2
                             : 1;
-            uint8_t* endPtr = reinterpret_cast<uint8_t*>(mtProject.instrument[i].sample.address) +
+            uint8_t* endPtr = reinterpret_cast<uint8_t*>(static_cast<int16_t*>(mtProject.instrument[i].sample.address)) +
                               frames * ch * sizeof(int16_t);
             if (endPtr > scratchStart)
             {

@@ -1,6 +1,27 @@
 #ifndef CONFIG_CONFIG_H_
 #define CONFIG_CONFIG_H_
 
+#ifdef PLATFORM_HOST
+#include <assert.h>
+// Desktop build: no ELF sections (Mach-O rejects them) and interrupts are emulated by IrqGate.
+#ifdef __cplusplus
+extern "C" {
+#endif
+void hostIrqDisable(void);
+void hostIrqEnable(void);
+#ifdef __cplusplus
+}
+#endif
+#define DISABLE_GLOBAL_INTERRUPTS() hostIrqDisable()
+#define ENABLE_GLOBAL_INTERRUPTS()  hostIrqEnable()
+
+#define DMAMEM
+#define AUDIO_CORE_FLASH
+#define AUDIO_CORE_RAM
+#define OCRAM_BSS_SECTION
+// Placement attributes for big static buffers; host keeps only the alignment.
+#define PT_BUFFER_ATTR(...) __attribute__((aligned(32)))
+#else
 #define DISABLE_GLOBAL_INTERRUPTS() __asm__ volatile("CPSID i" ::: "memory")
 #define ENABLE_GLOBAL_INTERRUPTS()  __asm__ volatile("CPSIE i" ::: "memory")
 
@@ -8,6 +29,8 @@
 #define AUDIO_CORE_FLASH  __attribute__((section(".audio_flash_functions"), used))
 #define AUDIO_CORE_RAM    __attribute__((section(".audio_ram_functions"), used))
 #define OCRAM_BSS_SECTION __attribute__((section(".bss.$RAM3"), used))
+#define PT_BUFFER_ATTR(...) __attribute__((__VA_ARGS__))
+#endif
 
 static constexpr int kMaxFilesListLength = 256;
 static constexpr int kMaxFilePathLen = 255;

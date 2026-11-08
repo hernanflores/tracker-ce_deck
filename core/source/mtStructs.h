@@ -3,6 +3,7 @@
 
 #include "config.h"
 #include "mtEnvelopeGenerator.h"
+#include "SamplePtr.h"
 #include <stdint.h>
 
 //=====================================================================
@@ -603,7 +604,7 @@ struct strInstrument
         uint8_t type; //;
         char file_name[32];
 
-        int16_t* address;
+        SamplePtr address;
         uint32_t length; // = 0;
 
         uint16_t wavetable_window_size; // = 2048;

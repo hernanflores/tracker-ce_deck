@@ -2,7 +2,9 @@
 #include "config.h"
 #include "limits.h"
 #include "log.h"
+#ifndef PLATFORM_HOST
 #include "malloc.h"
+#endif
 #include <polyassert.h>
 
 #include "Platform.h"
@@ -21,6 +23,11 @@ Profiler* Profiler::instance = nullptr;
 
 void Profiler::init()
 {
+#ifdef PLATFORM_HOST
+    // no sbrk-based heap statistics on desktop
+    resetMeasuringAudio();
+    return;
+#else
     // allocate and then free all available memory for malloc to claim all space
     // from sbrk, so that mallinfo data includes all of it
 
@@ -50,16 +57,21 @@ void Profiler::init()
       "memory on init: arena: %d, allocated: %d, free: %d\r\n", mi.arena, mi.uordblks, mi.fordblks);
 
     resetMeasuringAudio();
+#endif
 }
 
 size_t Profiler::freeRamBytes()
 {
+#ifdef PLATFORM_HOST
+    return 0;
+#else
     return mallinfo().fordblks;
+#endif
 }
 
 size_t Profiler::maxStackBytes()
 {
-#ifdef PLATFORM_IMX
+#if defined(PLATFORM_IMX) && !defined(PLATFORM_HOST)
     const uint8_t* base = (uint8_t*)&_vStackBase;
     const uint8_t* top = (uint8_t*)&_vStackTop;
 

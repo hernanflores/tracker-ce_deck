@@ -24,9 +24,15 @@
 //
 // This will place the 1024 byte buffer into the RAM1
 //
-#define __SECTION_EXT(type, bank, name) __attribute__ ((section("." #type ".$" #bank "." #name)))
-#define __SECTION(type, bank) __attribute__ ((section("." #type ".$" #bank)))
-#define __SECTION_SIMPLE(type) __attribute__ ((section("." #type)))
+#ifdef PLATFORM_HOST
+#define __PT_SEC(s)
+#else
+#define __PT_SEC(s) __attribute__ ((section(s)))
+#endif
+
+#define __SECTION_EXT(type, bank, name) __PT_SEC("." #type ".$" #bank "." #name)
+#define __SECTION(type, bank) __PT_SEC("." #type ".$" #bank)
+#define __SECTION_SIMPLE(type) __PT_SEC("." #type)
 
 #define __DATA_EXT(bank, name) __SECTION_EXT(data, bank, name)
 #define __DATA(bank) __SECTION(data, bank)
@@ -36,12 +42,12 @@
 
 // Macros for placing text (code), data, or bss into a section that is automatically
 // placed after the vectors in the target image.
-#define __AFTER_VECTORS_EXT(name) __attribute__ ((section(".after_vectors.$" #name)))
-#define __AFTER_VECTORS __attribute__ ((section(".after_vectors")))
+#define __AFTER_VECTORS_EXT(name) __PT_SEC(".after_vectors.$" #name)
+#define __AFTER_VECTORS __PT_SEC(".after_vectors")
 
 // Macros for causing functions to be relocated to RAM
-#define __RAM_FUNC_EXT(name) __attribute__ ((section(".ramfunc.$" #name)))
-#define __RAM_FUNC __attribute__ ((section(".ramfunc")))
+#define __RAM_FUNC_EXT(name) __PT_SEC(".ramfunc.$" #name)
+#define __RAM_FUNC __PT_SEC(".ramfunc")
 
 // Macros to be used in preference to __RAM_FUNC to better match __DATA behaviour
 #define __RAMFUNC_EXT(bank, name) __SECTION_EXT(ramfunc, bank, name)
