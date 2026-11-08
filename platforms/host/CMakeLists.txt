@@ -60,7 +60,9 @@ target_compile_options(tracker_core PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti 
 
 # ---- host platform + executable ----
 file(GLOB HOST_SRC CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
+find_package(SDL3 REQUIRED CONFIG)
 add_executable(tracker-host ${HOST_SRC})
+target_link_libraries(tracker-host PRIVATE SDL3::SDL3)
 target_include_directories(tracker-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_options(tracker-host PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti -fno-exceptions>)
 option(HOST_WHOLE_ARCHIVE "Link every core object (find unresolved symbols)" OFF)
@@ -79,3 +81,18 @@ else()
   target_link_options(tracker-host PRIVATE -Wl,--gc-sections)
   target_link_libraries(tracker-host PRIVATE pthread dl)
 endif()
+
+# ---- unit tests (ctest) ----
+enable_testing()
+add_executable(irqgate_test tests/irqgate_test.cpp source/IrqGate.cpp)
+target_include_directories(irqgate_test PRIVATE include)
+target_link_libraries(irqgate_test PRIVATE tracker_core)
+add_test(NAME irqgate COMMAND irqgate_test)
+
+add_executable(dspinst_test tests/dspinst_test.cpp)
+target_include_directories(dspinst_test PRIVATE ${CORE_DIR}/libs/Audio/utility)
+target_compile_definitions(dspinst_test PRIVATE PLATFORM_HOST)
+add_test(NAME dspinst COMMAND dspinst_test)
+
+add_test(NAME export_smoke COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/export_smoke.sh $<TARGET_FILE:tracker-host>)
+set_tests_properties(export_smoke PROPERTIES ENVIRONMENT "SDL_AUDIODRIVER=dummy")

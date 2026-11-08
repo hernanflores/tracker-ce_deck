@@ -27,6 +27,9 @@ namespace IrqGate
 // Audio thread: runs `isr` the way the audio DMA interrupt would run on the MCU.
 void runIsr(void (*isr)(void*), void* arg);
 bool inIsr();
+// longest time the audio thread waited for the gate (the main thread had interrupts disabled)
+uint32_t maxWaitUs();
+void resetStats();
 } // namespace IrqGate
 
 //----------------------------------------------------------------------------------------------

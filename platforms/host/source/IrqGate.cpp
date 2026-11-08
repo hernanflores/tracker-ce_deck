@@ -13,6 +13,7 @@
 static std::mutex gGate;
 static thread_local bool tInIsr = false;
 static std::atomic<bool> gMainHolds{ false };
+static std::atomic<uint32_t> gMaxWaitUs{ 0 };
 
 namespace IrqGate
 {
@@ -21,9 +22,25 @@ bool inIsr()
     return tInIsr;
 }
 
+uint32_t maxWaitUs()
+{
+    return gMaxWaitUs.load();
+}
+
+void resetStats()
+{
+    gMaxWaitUs = 0;
+}
+
 void runIsr(void (*isr)(void*), void* arg)
 {
+    const auto t0 = std::chrono::steady_clock::now();
     gGate.lock();
+    const auto waitUs = (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(
+                          std::chrono::steady_clock::now() - t0)
+                          .count();
+    uint32_t prev = gMaxWaitUs.load();
+    while (waitUs > prev && !gMaxWaitUs.compare_exchange_weak(prev, waitUs)) {}
     tInIsr = true;
     isr(arg);
     tInIsr = false;
