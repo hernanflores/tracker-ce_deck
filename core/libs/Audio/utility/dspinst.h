@@ -29,6 +29,10 @@
 
 #include <stdint.h>
 
+#ifdef PLATFORM_HOST
+#include "dspinst_host.h"
+#else
+
 // computes limit((val >> rshift), 2**bits)
 static inline int32_t signed_saturate_rshift(int32_t val, int bits, int rshift)
   __attribute__((always_inline, unused));
@@ -394,5 +398,7 @@ static inline int32_t multiply_32x32_rshift(int32_t x, int32_t y, int z)
     return ((int64_t)x * y) >> (31 - z); // not tested
 #endif
 }
+
+#endif // PLATFORM_HOST
 
 #endif

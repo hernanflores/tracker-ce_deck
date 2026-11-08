@@ -79,7 +79,7 @@ const PtfxHostApi* PtfxLoader::getHostApi()
     return &s_ptfxHostApi;
 }
 
-#ifdef PLATFORM_IMX
+#if defined(PLATFORM_IMX) && !defined(PLATFORM_HOST)
 static void cleanInvalidateDCache(void* addr, uint32_t size)
 {
     // SCB_BASE (0xE000ED00) + 0x270 = 0xE000EF70 (SCB->DCCIMVAC)
@@ -100,6 +100,10 @@ static void cleanInvalidateDCache(void* addr, uint32_t size)
 
 void PtfxLoader::syncInstructionCache([[maybe_unused]] void* addr, [[maybe_unused]] uint32_t size)
 {
+#ifdef PLATFORM_HOST
+    // nothing to synchronize: plugins are not executed from RAM on the desktop build
+    return;
+#endif
     asm volatile("dsb 0xf" ::: "memory");
     asm volatile("isb 0xf" ::: "memory");
 
@@ -209,6 +213,12 @@ bool PtfxLoader::loadPlugin(const char* filepath,
     }
 #endif
 
+#ifdef PLATFORM_HOST
+    // .ptfx payloads are ARM Thumb machine code and cannot run on the desktop build
+    fs->closeFile(fileHandle);
+    return false;
+#endif
+
     uint32_t totalCodeSize = outHeader.code_size + outHeader.bss_size;
     if (totalCodeSize > getMaxCodeSize())
     {
@@ -225,7 +235,7 @@ bool PtfxLoader::loadPlugin(const char* filepath,
     uint8_t* codeBuf = getCodeBuffer();
     engine.getSdPlayer()->stop();
 
-#ifdef PLATFORM_IMX
+#if defined(PLATFORM_IMX) && !defined(PLATFORM_HOST)
     // Clean and invalidate D-Cache across the executable buffer before loading
     cleanInvalidateDCache(codeBuf, getMaxCodeSize());
 #endif

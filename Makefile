@@ -23,7 +23,7 @@ MINI_POSTFIX     ?= $(EDITION_NAME)_$(MINI_VER_MAJOR).$(MINI_VER_MINOR).$(MINI_V
 
 .DEFAULT_GOAL := all
 
-.PHONY: all original plus mini ptfx clean version bump-patch bump-minor
+.PHONY: all original plus mini ptfx host host-clean clean version bump-patch bump-minor
 
 all: original plus mini
 
@@ -97,6 +97,17 @@ ptfx:
 		base=$$(basename "$$src" .c); \
 		python3 "$(ROOT_DIR)/editor-fx-sdk/ptfx_builder.py" "$$src" -o "$(ROOT_DIR)/editor-fx-sdk/build/Effects/$$base.ptfx" --toolchain "$(TOOLCHAIN)"; \
 	done
+
+# Desktop (SDL3) build of the Mini firmware: platforms/host, output in build-host/
+HOST_BUILD_DIR := $(ROOT_DIR)/build-host
+
+host:
+	cmake -S "$(ROOT_DIR)/platforms/host" -B "$(HOST_BUILD_DIR)" $(HOST_CMAKE_ARGS)
+	cmake --build "$(HOST_BUILD_DIR)" -j$(NPROC)
+	@echo "-> Output: $(HOST_BUILD_DIR)/tracker-host"
+
+host-clean:
+	rm -rf "$(HOST_BUILD_DIR)"
 
 clean:
 	$(MAKE) -C "$(CORE_DIR)" clean PLATFORM=MK66 PRODUCT=ORIGINAL
