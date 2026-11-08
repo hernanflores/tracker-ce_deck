@@ -18,6 +18,8 @@ struct HostFile
     int fd = -1;
     bool writable = false;
     std::string path;
+    // path of the last close that kept the handle allocated (closeFile(h, false))
+    std::string lastClosedPath;
 };
 
 //----------------------------------------------------------------------------------------------
@@ -286,6 +288,18 @@ std::tuple<bool, FileSystem::FileHandle> FileSystemHost::openFile(const char* fi
     }
 
     const std::string hostPath = resolve(filepath);
+
+    // The exporter flushes by reopening its WAV with "create always" after a closeFile(h, false)
+    // and then seeking to the write position. FatFs truncates, but the re-extended file still
+    // holds the old cluster contents, so that works on a FAT card by accident. A POSIX file system
+    // would hand back zeros, so reopening the same path on the same handle keeps the data.
+    if (openMode == kWriteCreateNew && !file->lastClosedPath.empty() &&
+        file->lastClosedPath == hostPath && pathExists(hostPath))
+    {
+        flags &= ~O_TRUNC;
+    }
+    file->lastClosedPath.clear();
+
     bool ok = !isDirectory(hostPath);
     if (ok)
     {
@@ -350,6 +364,7 @@ void FileSystemHost::closeFile(FileHandle file, bool deleteOnClose)
         ::close(f->fd);
         f->fd = -1;
     }
+    f->lastClosedPath = std::move(f->path);
     f->path.clear();
     if (deleteOnClose) delete f;
 }
